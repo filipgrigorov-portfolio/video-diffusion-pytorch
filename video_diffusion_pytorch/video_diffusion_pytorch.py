@@ -20,6 +20,8 @@ from rotary_embedding_torch import RotaryEmbedding
 
 from video_diffusion_pytorch.text import tokenize, bert_embed, BERT_MODEL_DIM
 
+from dataset import MantaFlow2DSimSequenceDataset, TOTAL_SIMULATION_TIME
+
 # helpers functions
 
 def exists(x):
@@ -365,9 +367,11 @@ class Unet3D(nn.Module):
 
         rotary_emb = RotaryEmbedding(min(32, attn_dim_head))
 
-        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', 'b (h w) f c', Attention(dim, heads = attn_heads, dim_head = attn_dim_head, rotary_emb = rotary_emb))
+        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', 'b (h w) f c', 
+            Attention(dim, heads = attn_heads, dim_head = attn_dim_head, rotary_emb = rotary_emb))
 
-        self.time_rel_pos_bias = RelativePositionBias(heads = attn_heads, max_distance = 32) # realistically will not be able to generate that many frames of video... yet
+        # realistically will not be able to generate that many frames of video... yet
+        self.time_rel_pos_bias = RelativePositionBias(heads = attn_heads, max_distance = 32)
 
         # initial conv
 
@@ -738,6 +742,7 @@ class GaussianDiffusion(nn.Module):
     def forward(self, x, *args, **kwargs):
         b, device, img_size, = x.shape[0], x.device, self.image_size
         check_shape(x, 'b c f h w', c = self.channels, f = self.num_frames, h = img_size, w = img_size)
+        print(device)
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         x = normalize_img(x)
         return self.p_losses(x, t, *args, **kwargs)
@@ -855,7 +860,9 @@ class Trainer(object):
         max_grad_norm = None
     ):
         super().__init__()
+        # DDPM
         self.model = diffusion_model
+        # EMA
         self.ema = EMA(ema_decay)
         self.ema_model = copy.deepcopy(self.model)
         self.update_ema_every = update_ema_every
@@ -872,7 +879,9 @@ class Trainer(object):
         channels = diffusion_model.channels
         num_frames = diffusion_model.num_frames
 
-        self.ds = Dataset(folder, image_size, channels = channels, num_frames = num_frames)
+        #self.ds = Dataset(folder, image_size, channels = channels, num_frames = num_frames)
+        #TODO: my own dataset
+        self.ds = MantaFlow2DSimSequenceDataset(folder)
 
         print(f'found {len(self.ds)} videos as gif files at {folder}')
         assert len(self.ds) > 0, 'need to have at least 1 video to start training (although 1 is not great, try 100k)'
